@@ -48,7 +48,7 @@ import kotlin.concurrent.thread
 
 val dotenv = dotenv()
 val dataSource = HikariDataSource(databaseConfig(dotenv))
-val databaseServer = dataSource.connection.metaData.databaseProductName.lowercase(Locale.ENGLISH)
+val databaseServer = dataSource.connection.use { it.metaData.databaseProductName.lowercase(Locale.ENGLISH) }
 
 class PTDServer : CliktCommand() {
     private val dbMigration: Boolean by option().boolean().default(true).help("Whether you will be migrating an existing db")
@@ -75,8 +75,15 @@ class PTDServer : CliktCommand() {
 
             val database = Database.connect(dataSource)
 
-            install(ContentNegotiation) {
-                register(ContentType.Application.FormUrlEncoded, CustomFormUrlEncodedConverter())
+            // Only the first-run DB migration plugin needs to deserialize a typed body from a
+            // urlencoded form (call.receive<DatabaseMigration>()). Registering a ContentConverter
+            // for application/x-www-form-urlencoded globally hijacks call.receiveParameters() and
+            // respondText(FormUrlEncoded) used by every SWF save/load route, making them stall on
+            // the request-read timeout (~15s) and return empty parameters. Scope it to migration.
+            if (dbMigration) {
+                install(ContentNegotiation) {
+                    register(ContentType.Application.FormUrlEncoded, CustomFormUrlEncodedConverter())
+                }
             }
 
             // TODO: Need to ensure only first migration is run if DB_MIGRATION_ASKED is not yes so schema will be correct for
@@ -198,6 +205,14 @@ fun databaseConfig(dotenv: Dotenv) : HikariConfig {
     config.jdbcUrl = dotenv["DATABASE_URL"]
     config.username = dotenv["DATABASE_USERNAME"]
     config.password = dotenv["DATABASE_PASSWORD"]
+
+    // SQLite allows only one writer and the codebase uses nested Exposed transactions
+    // (e.g. createAccount -> getOrCreateUser). With multiple pooled connections those
+    // nested writes deadlock on the single SQLite file lock. Pin the pool to 1 so all
+    // transactions serialize on one connection. MariaDB/MySQL/Postgres keep the default.
+    if (config.jdbcUrl?.startsWith("jdbc:sqlite") == true) {
+        config.maximumPoolSize = 1
+    }
 
     val databaseDriver = dotenv["DATABASE_DRIVER"]
     if(databaseDriver !== null) config.driverClassName = databaseDriver
