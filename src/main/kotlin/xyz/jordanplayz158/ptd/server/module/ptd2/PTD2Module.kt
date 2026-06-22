@@ -15,72 +15,79 @@ import xyz.jordanplayz158.ptd.server.module.ptd2.orm.PTD2Users
 
 fun Application.ptd2() {
     routing {
+        // PTD4 client (our PTD2.swf) posts to /newSave.php; legacy version used /php/ptd2_save_12.php.
+        // Both dispatch the same handler.
+        post("/newSave.php") { handlePtd2Save(call) }
         route("/php") {
-            post("/ptd2_save_12.php") {
-                val parameters = call.receiveParameters()
+            post("/ptd2_save_12.php") { handlePtd2Save(call) }
+        }
+    }
+}
 
-                val action = parameters["Action"]
-                val email = parameters["Email"]
-                val password = parameters["Pass"]
-                //val ver = parameters["Ver"]
-                if (action == null || email == null || password == null/* || ver == null*/) {
-                    call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_ALL_PARAMETERS_SUPPLIED)
-                    return@post
-                }
+private suspend fun handlePtd2Save(call: ApplicationCall) {
+    val parameters = call.receiveParameters()
 
-                if (action == "createAccount") {
-                    call.respondUrlEncodedForm(PTD2SWFController.createAccount(email, password))
-                    return@post
-                }
+    // [PTD4 diag] log received params to identify our PTD2.swf protocol (remove once aligned)
+    println("[PTD2 newSave] " + parameters.entries().joinToString(" | ") { e -> e.key + "=" + e.value.joinToString(",") })
 
-                val account = validAccount(email, password)
-                if (account === null) {
-                    call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_FOUND)
-                    return@post
-                }
+    val action = parameters["Action"]
+    val email = parameters["Email"]
+    val password = parameters["Pass"]
+    if (action == null || email == null || password == null) {
+        call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_ALL_PARAMETERS_SUPPLIED)
+        return
+    }
 
-                // Non profile dependent
-                when (action) {
-                    "loadAccount" -> call.respondUrlEncodedForm(PTD2SWFController.loadAccount())
-                    "loadStory" -> call.respondUrlEncodedForm(PTD2SWFController.loadStory(account))
-                    "load1on1" -> call.respondUrlEncodedForm(PTD2SWFController.load1v1(account))
+    if (action == "createAccount") {
+        call.respondUrlEncodedForm(PTD2SWFController.createAccount(email, password))
+        return
+    }
 
-                    else -> {
-                        val whichProfileString = parameters["whichProfile"]
-                        if (whichProfileString == null) {
-                            call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_ALL_PARAMETERS_SUPPLIED)
-                            return@post
-                        }
+    val account = validAccount(email, password)
+    if (account === null) {
+        call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_FOUND)
+        return
+    }
 
-                        val whichProfile = whichProfileString.toByte()
+    // Non profile dependent
+    when (action) {
+        "loadAccount" -> call.respondUrlEncodedForm(PTD2SWFController.loadAccount())
+        "loadStory" -> call.respondUrlEncodedForm(PTD2SWFController.loadStory(account))
+        "load1on1" -> call.respondUrlEncodedForm(PTD2SWFController.load1v1(account))
 
-                        when (action) {
-                            "saveStory" -> call.respondUrlEncodedForm(
-                                PTD2SWFController.saveStory(account, whichProfile, parameters))
+        else -> {
+            val whichProfileString = parameters["whichProfile"]
+            if (whichProfileString == null) {
+                call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_ALL_PARAMETERS_SUPPLIED)
+                return
+            }
 
-                            "save1on1" -> call.respondUrlEncodedForm(
-                                PTD2SWFController.save1v1(account, whichProfile, parameters))
+            val whichProfile = whichProfileString.toByte()
 
-                            "delete1on1" -> call.respondUrlEncodedForm(
-                                PTD2SWFController.delete1v1(transaction { account.oneV1.firstOrNull { it.number == whichProfile } }))
-                        }
+            when (action) {
+                "saveStory" -> call.respondUrlEncodedForm(
+                    PTD2SWFController.saveStory(account, whichProfile, parameters))
 
-                        val story = transaction { account.saves.firstOrNull { it.number == whichProfile } }
+                "save1on1" -> call.respondUrlEncodedForm(
+                    PTD2SWFController.save1v1(account, whichProfile, parameters))
 
-                        if (story === null) {
-                            call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_FOUND)
-                            return@post
-                        }
+                "delete1on1" -> call.respondUrlEncodedForm(
+                    PTD2SWFController.delete1v1(transaction { account.oneV1.firstOrNull { it.number == whichProfile } }))
+            }
 
-                        when (action) {
-                            "loadStoryProfile" -> call.respondUrlEncodedForm(
-                                PTD2SWFController.loadStoryProfile(story))
+            val story = transaction { account.saves.firstOrNull { it.number == whichProfile } }
 
-                            "deleteStory" -> call.respondUrlEncodedForm(
-                                PTD2SWFController.deleteStory(story))
-                        }
-                    }
-                }
+            if (story === null) {
+                call.respondUrlEncodedForm(ReasonsEnum.FAILURE_NOT_FOUND)
+                return
+            }
+
+            when (action) {
+                "loadStoryProfile" -> call.respondUrlEncodedForm(
+                    PTD2SWFController.loadStoryProfile(story))
+
+                "deleteStory" -> call.respondUrlEncodedForm(
+                    PTD2SWFController.deleteStory(story))
             }
         }
     }
