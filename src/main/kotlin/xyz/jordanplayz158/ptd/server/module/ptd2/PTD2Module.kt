@@ -27,9 +27,6 @@ fun Application.ptd2() {
 private suspend fun handlePtd2Save(call: ApplicationCall) {
     val parameters = call.receiveParameters()
 
-    // [PTD4 diag] log received params to identify our PTD2.swf protocol (remove once aligned)
-    println("[PTD2 newSave] " + parameters.entries().joinToString(" | ") { e -> e.key + "=" + e.value.joinToString(",") })
-
     val action = parameters["Action"]
     val email = parameters["Email"]
     val password = parameters["Pass"]
